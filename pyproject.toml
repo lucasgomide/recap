@@ -9,12 +9,13 @@ readme = "README.md"
 python = "^3.12"
 youtube-dl = {git = "https://github.com/ytdl-org/youtube-dl.git", rev = "master"}
 google-cloud-storage = "^2.16.0"
-langchain-google-genai = "^1.0.4"
 langchain-google-community = {extras = ["speech"], version = "^1.0.4"}
 ffmpeg-python = "^0.2.0"
 google-auth-oauthlib = "^1.2.0"
 ffmpeg = "^1.4"
 click = "^8.1.7"
+langchain = "^0.2.5"
+langchain-google-vertexai = "^1.0.5"
 
 
 [tool.poetry.group.dev.dependencies]
