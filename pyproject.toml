@@ -16,6 +16,7 @@ ffmpeg = "^1.4"
 click = "^8.1.7"
 langchain = "^0.2.5"
 langchain-google-vertexai = "^1.0.5"
+pydub = "^0.25.1"
 
 
 [tool.poetry.group.dev.dependencies]
