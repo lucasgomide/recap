@@ -1,3 +1,5 @@
+from collections import namedtuple
+from typing import Generator
 from dataclasses import dataclass
 from functools import cached_property
 import youtube_dl
@@ -11,17 +13,22 @@ from pydub import AudioSegment
 
 FIVE_MINUTES_IN_MILISECONDS = 1000 * 60 * 5
 
+Audio = namedtuple("Audio", ["audio_segment", "filename"])
+
 
 @dataclass
 class VideoTranscriberService:
     url: str
-    GCS_BUCKET: str = os.environ["GCS_BUCKET"]
 
     @cached_property
     def storage_client(self):
         return storage.Client()
 
-    def get_audios_path(self, video_url: str) -> list[str]:
+    @cached_property
+    def bucket(self):
+        return self.storage_client.bucket(os.environ["GCS_BUCKET"])
+
+    def get_audios(self, video_url: str) -> Generator[Audio, None, None]:
         """
         Download a video from a given URL and convert it to MP3 format. Then, split the original
         audio into 5-minute chunks
@@ -31,17 +38,15 @@ class VideoTranscriberService:
         original_audio = AudioSegment.from_mp3(original_path)
         song_duration = len(original_audio)
         start = 0
-        files_paths = []
         chunk_size = math.ceil(song_duration / FIVE_MINUTES_IN_MILISECONDS)
-        # TODO: split audios parallelly
-        for chunk in range(start, chunk_size):
-            temp_audio = original_audio[start : start + FIVE_MINUTES_IN_MILISECONDS]
-            start += FIVE_MINUTES_IN_MILISECONDS
-            temp_path = f"{original_path.split('.')[0]}-part-{chunk}.mp3"
-            temp_audio.export(temp_path, format="mp3")
-            files_paths.append(temp_path)
 
-        return files_paths
+        for index in range(start, chunk_size):
+            audio = original_audio[start : start + FIVE_MINUTES_IN_MILISECONDS]
+            start += FIVE_MINUTES_IN_MILISECONDS
+            folder, filename = original_path.split("/")[-2:]
+            yield Audio(
+                audio_segment=audio, filename=f"{folder}/index-{index}-{filename}"
+            )
 
     def _download_audio(self, video_url: str) -> str:
         saved_file_path = []
@@ -59,31 +64,29 @@ class VideoTranscriberService:
                     "preferredcodec": "mp3",
                 }
             ],
+            "nooverwrites": True,
             "progress_hooks": [postprocessor_hook],
         }
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
         return saved_file_path[0]
 
-    def _upload_to_gcs(self, audio_paths: list[str]) -> list[str]:
-        blobs_path = []
-        bucket = self.storage_client.bucket(self.GCS_BUCKET)
-        for audio_path in audio_paths:
-            destination = f"audio-files/{audio_path.split("/")[-1]}"
-            blob = bucket.blob(destination)
-            logger.info(f"Uploading audio {blob.name} file to gcs")
-            if not blob.exists():
-                blob.upload_from_filename(audio_path)
-            else:
-                logger.info(f"Audio {blob.name} already exists in GCS")
+    def _upload_to_gcs(self, audio: Audio) -> str:
+        audio.audio_segment.export(audio.filename)
+        blob_destination = audio.filename.split("/")[-1]
+        blob = self.bucket.blob(f"audio-files/{blob_destination}")
+        logger.info(f"Uploading audio {blob.name} file to gcs")
+        if not blob.exists():
+            blob.upload_from_filename(audio.filename)
+        else:
+            logger.info(f"Audio {blob.name} already exists in GCS")
 
-            blobs_path.append(f"gs://{bucket.name}/{blob.name}")
-        return blobs_path
+        return f"gs://{self.bucket.name}/{blob.name}"
 
     def run(self) -> str:
-        audios_path = self.get_audios_path(video_url=self.url)
-        uris = self._upload_to_gcs(audio_paths=audios_path)
+        audios = self.get_audios(video_url=self.url)
         transcriptions = []
-        for uri in uris:
+        for audio in audios:
+            uri = self._upload_to_gcs(audio=audio)
             transcriptions.extend(transcribe_speech(uri=uri))
         return " ".join(transcriptions)
