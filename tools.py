@@ -11,13 +11,13 @@ class VideoTranscriberInput(BaseModel):
 
 
 class VideoTranscriber(BaseTool):
-    """Tool that transcribe video or audio on demand"""
+    """Ferramenta usada quando é necessário transcrever videos sobre demanda"""
 
     name: str = "video_transcription"
     description: str = (
-        "Useful for when you need to transcript a video or audio content."
-        "Input should be a URL. "
-        "This returns only the transcription - not the original source data."
+        "Útil quando você precisa transcrever um video ou áudio em texto."
+        "A entrada deve ser URL."
+        "O retorno é a transcrição do áudio. Deve ser retornado como {transcription: <descrição criada>}"
     )
     args_schema: Type[BaseModel] = VideoTranscriberInput
     service_klass_wrapper: VideoTranscriberService = Field(

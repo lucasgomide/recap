@@ -1,3 +1,4 @@
+from pathlib import Path
 from collections import namedtuple
 from typing import Generator
 from dataclasses import dataclass
@@ -35,7 +36,7 @@ class VideoTranscriberService:
         """
 
         original_path = self._download_audio(video_url=video_url)
-        original_audio = AudioSegment.from_mp3(original_path)
+        original_audio = AudioSegment.from_file(original_path, format="mp4")
         song_duration = len(original_audio)
         start = 0
         chunk_size = math.ceil(song_duration / FIVE_MINUTES_IN_MILISECONDS)
@@ -49,32 +50,24 @@ class VideoTranscriberService:
             )
 
     def _download_audio(self, video_url: str) -> str:
-        saved_file_path = []
+        paths = video_url.removeprefix("gs://").split("/")
+        bucket_name, blob_file = paths[0], "/".join(paths[1:])
+        bucket = self.storage_client.get_bucket(bucket_name)
+        saved_file_path = f"audios/{paths[-1]}"
+        my_file = Path(saved_file_path)
+        if my_file.is_file():
+            logger.info("File already aexists")
+            return saved_file_path
 
-        def postprocessor_hook(item):
-            if item["status"] == "finished":
-                saved_file_path.append(f"{item['filename'].split('.')[0]}.mp3")
+        blob = bucket.blob(blob_file)
+        blob.download_to_filename(saved_file_path)
 
-        ydl_opts = {
-            "outtmpl": "audios/%(id)s.%(ext)s",
-            "format": "bestaudio/best",
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                }
-            ],
-            "nooverwrites": True,
-            "progress_hooks": [postprocessor_hook],
-        }
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
-        return saved_file_path[0]
+        return saved_file_path
 
     def _upload_to_gcs(self, audio: Audio) -> str:
         audio.audio_segment.export(audio.filename)
         blob_destination = audio.filename.split("/")[-1]
-        blob = self.bucket.blob(f"audio-files/{blob_destination}")
+        blob = self.bucket.blob(f"audios/{blob_destination}")
         logger.info(f"Uploading audio {blob.name} file to gcs")
         if not blob.exists():
             blob.upload_from_filename(audio.filename)
